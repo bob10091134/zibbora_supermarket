@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Supermarket Simulator</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; background: #111; color: #fff; }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
+        
+        /* UI Overlay */
+        #hud {
+            position: absolute; top: 15px; left: 15px; z-index: 10;
+            display: flex; gap: 12px; pointer-events: none;
+        }
+        .stat-card {
+            background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 10px;
+            padding: 10px 16px; font-weight: bold; font-size: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 8px;
+        }
+        
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; width: 10px; height: 10px;
+            transform: translate(-50%, -50%); pointer-events: none; z-index: 10;
+        }
+        #crosshair::before, #crosshair::after {
+            content: ''; position: absolute; background: rgba(255, 255, 255, 0.8);
+        }
+        #crosshair::before { top: 4px; left: 0; width: 10px; height: 2px; }
+        #crosshair::after { top: 0; left: 4px; width: 2px; height: 10px; }
+
+        #interaction-prompt {
+            position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.8); padding: 10px 20px; border-radius: 20px;
+            font-size: 16px; font-weight: 600; pointer-events: none; z-index: 10;
+            border: 1px solid #4f46e5; display: none; text-align: center;
+        }
+
+        /* Controls guide */
+        #controls-info {
+            position: absolute; bottom: 15px; left: 15px; z-index: 10;
+            background: rgba(0,0,0,0.7); padding: 10px 14px; border-radius: 8px;
+            font-size: 12px; color: #ccc; pointer-events: none;
+        }
+
+        /* Register Minigame Modal */
+        #register-modal {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 420px; background: #1e293b; border: 2px solid #3b82f6; border-radius: 16px;
+            padding: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); z-index: 100; display: none;
+        }
+        #register-modal h2 { text-align: center; color: #60a5fa; margin-bottom: 15px; }
+        .checkout-list { background: #0f172a; padding: 12px; border-radius: 8px; height: 140px; overflow-y: auto; margin-bottom: 15px; }
+        .checkout-item { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 14px; }
+        .checkout-total { display: flex; justify-content: space-between; font-weight: bold; font-size: 18px; border-top: 1px solid #334155; padding-top: 8px; color: #4ade80; }
+        .register-actions { display: flex; gap: 10px; }
+        .btn {
+            flex: 1; padding: 12px; border: none; border-radius: 8px; font-weight: bold;
+            cursor: pointer; transition: all 0.2s; font-size: 14px;
+        }
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-secondary { background: #475569; color: white; }
+        .btn-secondary:hover { background: #334155; }
+
+        /* Order Computer Modal */
+        #computer-modal {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 500px; background: #0f172a; border: 2px solid #10b981; border-radius: 16px;
+            padding: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); z-index: 100; display: none;
+        }
+        #computer-modal h2 { text-align: center; color: #34d399; margin-bottom: 15px; }
+        .market-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+        .market-card { background: #1e293b; padding: 12px; border-radius: 8px; border: 1px solid #334155; }
+        .market-card h4 { color: #f8fafc; font-size: 15px; margin-bottom: 4px; }
+        .market-card p { font-size: 12px; color: #94a3b8; margin-bottom: 8px; }
+        .market-card button { width: 100%; padding: 8px; background: #059669; border: none; border-radius: 6px; color: white; font-weight: bold; cursor: pointer; }
+        .market-card button:hover { background: #10b981; }
+
+        #close-btn { position: absolute; top: 12px; right: 12px; background: transparent; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; }
+    </style>
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.min.js"></script>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    <div id="crosshair"></div>
+
+    <div id="hud">
+        <div class="stat-card">💵 Money: $<span id="money-display">150.00</span></div>
+        <div class="stat-card">⭐ Store Level: <span id="level-display">1</span></div>
+        <div class="stat-card">📦 Inventory Stock: <span id="stock-display">24</span></div>
+    </div>
+
+    <div id="interaction-prompt">Press [E] to interact</div>
+
+    <div id="controls-info">
+        <strong>Controls:</strong><br>
+        W, A, S, D - Move<br>
+        Mouse - Look Around<br>
+        Left Click - Lock View / Pick Up Box<br>
+        E - Interact (Register / Computer / Restock)
+    </div>
+
+    <!-- Register Modal -->
+    <div id="register-modal">
+        <h2>Cash Register</h2>
+        <div class="checkout-list" id="checkout-list">
+            <!-- Items populated dynamically -->
+        </div>
+        <div class="checkout-total">
+            <span>Total:</span>
+            <span id="checkout-total-price">$0.00</span>
+        </div>
+        <br>
+        <div class="register-actions">
+            <button class="btn btn-primary" id="scan-btn">Scan Items & Collect Cash</button>
+            <button class="btn btn-secondary" onclick="closeRegister()">Close</button>
+        </div>
+    </div>
+
+    <!-- Computer Ordering Modal -->
+    <div id="computer-modal">
+        <button id="close-btn" onclick="closeComputer()">✕</button>
+        <h2>Supply Wholesale Portal</h2>
+        <div class="market-grid">
+            <div class="market-card">
+                <h4>Soda Cans Box (x12)</h4>
+                <p>Wholesale Cost: $18.00</p>
+                <button onclick="orderStock('Soda', 18, 12)">Order Box</button>
+            </div>
+            <div class="market-card">
+                <h4>Cereal Boxes (x10)</h4>
+                <p>Wholesale Cost: $25.00</p>
+                <button onclick="orderStock('Cereal', 25, 10)">Order Box</button>
+            </div>
+            <div class="market-card">
+                <h4>Laundry Soap (x8)</h4>
+                <p>Wholesale Cost: $32.00</p>
+                <button onclick="orderStock('Detergent', 32, 8)">Order Box</button>
+            </div>
+            <div class="market-card">
+                <h4>Potato Chips (x15)</h4>
+                <p>Wholesale Cost: $20.00</p>
+                <button onclick="orderStock('Chips', 20, 15)">Order Box</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Game State
+        let money = 150.00;
+        let storeLevel = 1;
+        let totalStock = 24;
+        let holdingBox = false;
+
+        // Scene Setup
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a24);
+        scene.fog = new THREE.FogExp2(0x1a1a24, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        // Audio Effects (Web Audio API)
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(freq, duration, type='sine') {
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.value = freq;
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch(e) {}
+        }
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        // Ceiling Lights
+        for (let x = -10; x <= 10; x += 10) {
+            for (let z = -10; z <= 10; z += 10) {
+                const light = new THREE.PointLight(0xfff5e6, 0.8, 15);
+                light.position.set(x, 4.8, z);
+                light.castShadow = true;
+                scene.add(light);
+
+                // Fixture Mesh
+                const fixtureGeo = new THREE.BoxGeometry(2, 0.1, 0.6);
+                const fixtureMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+                const fixture = new THREE.Mesh(fixtureGeo, fixtureMat);
+                fixture.position.set(x, 4.95, z);
+                scene.add(fixture);
+            }
+        }
+
+        // Store Structure
+        // Floor
+        const floorGeo = new THREE.PlaneGeometry(30, 30);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.2, metalness: 0.1 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        // Walls
+        const wallMat = new THREE.MeshStandardMaterial({ color: 0x334155 });
+        const backWall = new THREE.Mesh(new THREE.BoxGeometry(30, 6, 0.5), wallMat);
+        backWall.position.set(0, 3, -15);
+        scene.add(backWall);
+
+        const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, 6, 30), wallMat);
+        leftWall.position.set(-15, 3, 0);
+        scene.add(leftWall);
+
+        const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, 6, 30), wallMat);
+        rightWall.position.set(15, 3, 0);
+        scene.add(rightWall);
+
+        // Shelves Builder
+        const interactables = [];
+
+        function createShelf(x, z) {
+            const group = new THREE.Group();
+            const shelfMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.5, roughness: 0.4 });
+            
+            // Frame
+            const frameGeo = new THREE.BoxGeometry(0.1, 3.5, 1.2);
+            const leftLeg = new THREE.Mesh(frameGeo, shelfMat);
+            leftLeg.position.set(-1.9, 1.75, 0);
+            const rightLeg = new THREE.Mesh(frameGeo, shelfMat);
+            rightLeg.position.set(1.9, 1.75, 0);
